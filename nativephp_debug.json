@@ -1,0 +1,40 @@
+{
+    "Environment": {
+        "PHP": {
+            "Version": "8.3.30",
+            "Path": "E:\\laragon\\bin\\php\\php-8.3.30-Win32-vs16-x64\\php.exe"
+        },
+        "Laravel": {
+            "Version": "13.38.0",
+            "ConfigCached": false,
+            "RoutesCached": false,
+            "DebugEnabled": false
+        },
+        "Node": {
+            "Version": "v24.14.1",
+            "Path": "C:\\Program Files\\nodejs\\node.exe"
+        },
+        "NPM": {
+            "Version": "11.11.0",
+            "Path": "C:\\Program Files\\nodejs\\npm\r\nC:\\Program Files\\nodejs\\npm.cmd"
+        },
+        "OperatingSystem": "WINNT",
+        "ElectronRoot": "E:/laragon/www/desktop-app/vendor/nativephp/desktop/resources/electron"
+    },
+    "NativePHP": {
+        "Versions": {
+            "nativephp/desktop": "2.4.0.0",
+            "nativephp/php-bin": "Not Installed"
+        },
+        "Configuration": {
+            "Provider": "App\\Providers\\NativeAppServiceProvider",
+            "BuildHooks": {
+                "Pre": [],
+                "Post": []
+            },
+            "NotarizationEnabled": false,
+            "AzureTrustedSigningEnabled": false,
+            "CustomPHPBinary": false
+        }
+    }
+}
