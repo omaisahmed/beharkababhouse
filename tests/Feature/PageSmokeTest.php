@@ -36,6 +36,18 @@ class PageSmokeTest extends TestCase
         $this->get(route('setup.create'))->assertRedirect(route('dashboard'));
     }
 
+    public function test_shifts_page_renders_with_an_open_shift(): void
+    {
+        $this->actingAs($this->admin)
+            ->post(route('shifts.store'), ['opening_cash' => '0.00'])
+            ->assertRedirect(route('shifts.index'));
+
+        $this->actingAs($this->admin)
+            ->get(route('shifts.index'))
+            ->assertOk()
+            ->assertSee('Shift history');
+    }
+
     public function test_authenticated_pages_render(): void
     {
         $routes = [

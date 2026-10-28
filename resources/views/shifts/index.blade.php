@@ -64,7 +64,7 @@
                             <td class="tiny">{{ $shift->opened_at?->format('d M Y, H:i') }}</td>
                             <td class="tiny">{{ $shift->closed_at?->format('d M Y, H:i') ?? '—' }}</td>
                             <td class="r">{{ $money->money($shift->opening_cash_minor) }}</td>
-                            <td class="r">{{ $money->money($shift->expected_cash_minor) }}</td>
+                            <td class="r">{{ $shift->expected_cash_minor !== null ? $money->money($shift->expected_cash_minor) : '—' }}</td>
                             <td class="r">{{ $shift->counted_cash_minor !== null ? $money->money($shift->counted_cash_minor) : '—' }}</td>
                             <td class="r" style="color:{{ ($shift->difference_minor ?? 0) === 0 ? 'inherit' : (($shift->difference_minor ?? 0) > 0 ? 'var(--warning)' : 'var(--danger)') }};">{{ $shift->difference_minor !== null ? $money->money($shift->difference_minor) : '—' }}</td>
                             <td class="r"><a href="{{ route('shifts.show', $shift) }}" class="btn btn-ghost btn-sm">Details</a></td>
