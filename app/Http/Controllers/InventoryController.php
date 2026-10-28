@@ -12,6 +12,7 @@ use App\Support\Quantity;
 use App\Support\Units;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -73,23 +74,25 @@ class InventoryController extends Controller
             return back()->withErrors(['unit' => 'Enter valid quantities and costs.'])->withInput();
         }
 
-        $item = InventoryItem::query()->create([
-            'name' => $data['name'],
-            'sku' => ($data['sku'] ?? '') !== '' ? $data['sku'] : null,
-            'supplier_id' => $data['supplier_id'] ?? null,
-            'unit' => $data['unit'],
-            'stock_milli' => 0,
-            'minimum_stock_milli' => max(0, $minimum),
-            'cost_per_unit_minor' => max(0, $cost),
-            'is_active' => true,
-            'notes' => $data['notes'] ?? null,
-        ]);
+        DB::transaction(function () use ($data, $minimum, $cost, $opening, $inventory, $audit, $request) {
+            $item = InventoryItem::query()->create([
+                'name' => $data['name'],
+                'sku' => ($data['sku'] ?? '') !== '' ? $data['sku'] : null,
+                'supplier_id' => $data['supplier_id'] ?? null,
+                'unit' => $data['unit'],
+                'stock_milli' => 0,
+                'minimum_stock_milli' => max(0, $minimum),
+                'cost_per_unit_minor' => max(0, $cost),
+                'is_active' => true,
+                'notes' => $data['notes'] ?? null,
+            ]);
 
-        if ($opening !== 0) {
-            $inventory->adjust($item, $opening, StockMovementType::Opening, 'Opening stock entered when the item was created.', $request->user(), max(0, $cost));
-        }
+            if ($opening !== 0) {
+                $inventory->adjust($item, $opening, StockMovementType::Opening, 'Opening stock entered when the item was created.', $request->user(), max(0, $cost));
+            }
 
-        $audit->log('inventory.created', 'Created inventory item '.$item->name.'.', $item, ['unit' => $item->unit]);
+            $audit->log('inventory.created', 'Created inventory item '.$item->name.'.', $item, ['unit' => $item->unit]);
+        });
 
         return back()->with('success', 'Inventory item created.');
     }
@@ -172,9 +175,11 @@ class InventoryController extends Controller
             return back()->withErrors(['quantity' => 'Enter a valid quantity and cost.'])->withInput();
         }
 
-        $inventory->adjust($item, abs($quantity), StockMovementType::Purchase, $data['reason'] ?? 'Quick restock entered from the stock screen.', $request->user(), $cost);
+        DB::transaction(function () use ($inventory, $item, $quantity, $data, $cost, $request) {
+            $inventory->adjust($item, abs($quantity), StockMovementType::Purchase, $data['reason'] ?? 'Quick restock entered from the stock screen.', $request->user(), $cost);
 
-        $item->forceFill(['cost_per_unit_minor' => max(0, $cost)])->save();
+            $item->forceFill(['cost_per_unit_minor' => max(0, $cost)])->save();
+        });
 
         return back()->with('success', 'Stock received.');
     }

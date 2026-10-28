@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Enums\OrderStatus;
+use App\Enums\OrderType;
+use App\Enums\TableStatus;
 use App\Enums\UserRole;
 use App\Models\Category;
 use App\Models\InventoryItem;
@@ -12,8 +15,11 @@ use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\Recipe;
 use App\Models\RecipeIngredient;
+use App\Models\RestaurantTable;
+use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\AuditService;
 use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -182,6 +188,121 @@ class WorkflowSmokeTest extends TestCase
 
         $this->assertFalse($shift->isOpen());
         $this->assertSame(0, $shift->difference_minor);
+    }
+
+    public function test_inventory_item_creation_rolls_back_if_opening_stock_recording_fails(): void
+    {
+        $audit = \Mockery::mock(AuditService::class);
+        $audit->shouldReceive('log')->once()->andThrow(new \RuntimeException('Audit log failed.'));
+        $this->app->instance(AuditService::class, $audit);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->actingAs($this->admin)->post(route('inventory.items.store'), [
+                'name' => 'Olive oil',
+                'sku' => 'INV-OIL',
+                'unit' => 'l',
+                'minimum_stock' => '0',
+                'cost_per_unit' => '10.00',
+                'opening_stock' => '2',
+                'opening_unit' => 'l',
+            ]);
+            $this->fail('The failed audit should abort inventory creation.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Audit log failed.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseMissing('inventory_items', ['sku' => 'INV-OIL']);
+        $this->assertDatabaseMissing('stock_movements', ['reason' => 'Opening stock entered when the item was created.']);
+    }
+
+    public function test_inventory_creation_and_restock_update_stock_and_cost(): void
+    {
+        $this->actingAs($this->admin)->post(route('inventory.items.store'), [
+            'name' => 'Olive oil',
+            'sku' => 'INV-OIL',
+            'unit' => 'l',
+            'minimum_stock' => '0',
+            'cost_per_unit' => '10.00',
+            'opening_stock' => '2',
+            'opening_unit' => 'l',
+        ])->assertRedirect();
+
+        $item = InventoryItem::query()->where('sku', 'INV-OIL')->firstOrFail();
+        $this->assertSame(2000, $item->stock_milli);
+        $this->assertSame(1000, $item->cost_per_unit_minor);
+
+        $this->actingAs($this->admin)->post(route('inventory.restock', $item), [
+            'quantity' => '1.5',
+            'unit' => 'l',
+            'unit_cost' => '12.00',
+            'reason' => 'Supplier delivery',
+        ])->assertRedirect();
+
+        $item->refresh();
+        $this->assertSame(3500, $item->stock_milli);
+        $this->assertSame(1200, $item->cost_per_unit_minor);
+        $this->assertSame(2, StockMovement::query()->where('inventory_item_id', $item->id)->count());
+    }
+
+    public function test_order_completion_rolls_back_status_and_table_if_audit_log_fails(): void
+    {
+        $table = RestaurantTable::query()->create([
+            'name' => 'Table 1',
+            'capacity' => 4,
+            'status' => TableStatus::Occupied,
+            'is_active' => true,
+        ]);
+        $order = Order::query()->create([
+            'order_number' => 'ORD-ATOMIC-1',
+            'sequence_date' => today(),
+            'daily_sequence' => 1,
+            'order_type' => OrderType::DineIn,
+            'status' => OrderStatus::Ready,
+            'user_id' => $this->admin->id,
+            'restaurant_table_id' => $table->id,
+        ]);
+
+        $audit = \Mockery::mock(AuditService::class);
+        $audit->shouldReceive('log')->once()->andThrow(new \RuntimeException('Audit log failed.'));
+        $this->app->instance(AuditService::class, $audit);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->actingAs($this->admin)->post(route('orders.status', $order), ['status' => 'completed']);
+            $this->fail('The failed audit should abort order completion.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Audit log failed.', $exception->getMessage());
+        }
+
+        $this->assertSame(OrderStatus::Ready, $order->fresh()->status);
+        $this->assertSame(TableStatus::Occupied, $table->fresh()->status);
+    }
+
+    public function test_order_completion_releases_its_table(): void
+    {
+        $table = RestaurantTable::query()->create([
+            'name' => 'Table 2',
+            'capacity' => 4,
+            'status' => TableStatus::Occupied,
+            'is_active' => true,
+        ]);
+        $order = Order::query()->create([
+            'order_number' => 'ORD-COMPLETE-1',
+            'sequence_date' => today(),
+            'daily_sequence' => 2,
+            'order_type' => OrderType::DineIn,
+            'status' => OrderStatus::Ready,
+            'user_id' => $this->admin->id,
+            'restaurant_table_id' => $table->id,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('orders.status', $order), ['status' => 'completed'])
+            ->assertRedirect();
+
+        $this->assertSame(OrderStatus::Completed, $order->fresh()->status);
+        $this->assertSame(TableStatus::Available, $table->fresh()->status);
     }
 
     public function test_management_pages_and_updates_render_with_existing_data(): void

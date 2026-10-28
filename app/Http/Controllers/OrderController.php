@@ -11,6 +11,7 @@ use App\Services\RefundService;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -86,25 +87,27 @@ class OrderController extends Controller
 
         $status = OrderStatus::from($data['status']);
 
-        $order->forceFill(['status' => $status]);
+        DB::transaction(function () use ($order, $status, $pos, $audit, $request) {
+            $order->forceFill(['status' => $status]);
 
-        if ($status === OrderStatus::Completed) {
-            $order->completed_at = now();
-        }
+            if ($status === OrderStatus::Completed) {
+                $order->completed_at = now();
+            }
 
-        $order->save();
+            $order->save();
 
-        if ($status === OrderStatus::Completed) {
-            $pos->releaseTable($order->table);
-        }
+            if ($status === OrderStatus::Completed) {
+                $pos->releaseTable($order->table);
+            }
 
-        $audit->log(
-            'order.status',
-            'Order '.$order->order_number.' marked as '.$status->label().'.',
-            $order,
-            ['status' => $status->value],
-            $request->user(),
-        );
+            $audit->log(
+                'order.status',
+                'Order '.$order->order_number.' marked as '.$status->label().'.',
+                $order,
+                ['status' => $status->value],
+                $request->user(),
+            );
+        });
 
         return back()->with('success', 'Order marked as '.$status->label().'.');
     }
